@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+.bar.result rect {
+  fill: rgb(152, 162, 174);
+}
+
+.bar.middle rect {
+  fill: rgb(6, 69, 173);
+}
+
+.bar.initial rect {
+  fill: rgb(128, 128, 128);
+}
+
+.bar line.connector {
+  stroke: rgb(6, 69, 173);
+  stroke-dasharray: 3;
+}
+
+.bar text {
+  fill: black;
+  font: 15px sans-serif;
+  text-anchor: middle;
+}
+
+.axis text {
+  font: 15px sans-serif;
+  fill: rgb(6, 69, 173);
+}
+
+.axis path,
+.axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+#waterfall-container {
+	width: 960px;
+	margin: 0 auto;
+}
+
+</style>
+
+<div id="waterfall-container">
+	<svg class="chart"></svg>
+</div>
+
+<script src="https://d3js.org/d3.v3.min.js"></script>
+
+<script>
+var chartw = 960;
+var charth = 500;
+var margin = {top: 50, right: 30, bottom: 30, left: 40},
+    width = chartw - margin.left - margin.right,
+    height = charth - margin.top - margin.bottom,
+    padding = 0.3;
+
+var x = d3.scale.ordinal()
+    .rangeRoundBands([0, width], padding);
+
+var y = d3.scale.linear()
+    .range([height, 0]);
+
+var xAxis = d3.svg.axis()
+    .scale(x)
+    .orient("bottom");
+
+var yAxis = d3.svg.axis()
+    .scale(y)
+    .orient("left")
+    .tickFormat(function(d) { return commaFormatter(d); });
+
+var chart = d3.select(".chart")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+  	.append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+d3.csv("./data/data.csv", type, function(error, data) {
+
+  // Transform data (i.e., finding cumulative values and total) for easier charting
+  var cumulative = 0;
+  for (var i = 0; i < 4/*data.length*/; i++) {
+    data[i].start = cumulative;
+    cumulative += data[i].value;
+    data[i].end = cumulative;
+
+    data[i].class = ( data[i].value >= 0 ) ? 'middle positive' : 'middle negative'
+  }
+  
+  //data 0 - P12 2016
+  data[0].class = 'initial';
+
+  //data 4 = act p1 2017
+  data.splice(4, 0, {
+    name: 'act P1 2017',
+    end: cumulative,
+    start: 0,
+    class: 'middle'
+  });
+  data[4].value = data[4].end;
+
+  //data 5 = Delta to go
+  cumulative = data[4].end;
+  data[5].start = cumulative;
+  cumulative = data[5].value;
+  data[5].end = data[4].end + cumulative;
+  data[5].class = 'result';
+
+  //data 6 = LP 2017
+  cumulative = data[5].end;
+  data.splice(6, 0, {
+    name: 'LP 2017',
+    end: cumulative,
+    start: 0,
+    class: 'result final'
+  });
+  data[6].value = data[6].end;
+
+  //data 7 = LP 2018
+  data[7].start = 0;
+  data[7].end = data[7].value;
+  data[7].class = 'result final';
+
+  // calculate whether it should be broken or not
+  var minVal = Math.min(data[0].value - Math.abs(data[1].value), data[6].value, data[7].value)
+  var maxVal = Math.max(Math.abs(data[1].value), data[2].value, data[3].value, data[5].value);
+  var scaleStartVal = 0;
+  if (minVal > maxVal) {
+  	scaleStartVal = minVal - maxVal;
+  	for (var i = 0; i < data.length; i++) {
+  		if (data[i].value > scaleStartVal) {
+  			data[i].start = scaleStartVal + 1;
+  		}
+  	}
+  }
+
+  // set domain
+  x.domain(data.map(function(d) { return d.name; }));
+  y.domain([scaleStartVal, d3.max(data, function(d) { return d.end; })]);
+
+  // draw axis x
+  chart.append("g")
+      .attr("class", "x axis")
+      .attr("transform", "translate(0," + height + ")")
+      .call(xAxis);
+
+  // draw axis y
+  // chart.append("g")
+  // 	  .attr("class", "y axis")
+  // 	  .call(yAxis);
+
+  // draw bar
+  var bar = chart.selectAll(".bar")
+      .data(data)
+      .enter().append("g")
+      .attr("class", function(d) { return "bar " + d.class })
+      .attr("transform", function(d) { return "translate(" + x(d.name) + ",0)"; });
+
+  // draw bar
+  bar.append("rect")
+      .attr("y", function(d) { return y( Math.max(d.start, d.end) ); })
+      .attr("width", x.rangeBand())
+      .attr("height", function(d) { return Math.abs( y(d.start) - y(d.end) ); });
+
+  // draw value
+  bar.append("text")
+      .attr("x", x.rangeBand() / 2)
+      .attr("y", function(d) { return y(d.end) + 5; })
+      .attr("dy", function(d) { return ((d.class.includes('negative')) ? '+' : '-') + ".75em" })
+      .text(function(d) { return commaFormatter(d.value/*d.end - d.start*/);});
+
+  // draw break
+  bar.filter(function(d) { return (d.value > scaleStartVal)}).append("svg:image")
+  	  .attr('xlink:href',function(d){return ('./svg/break2.svg')})
+	  .attr('height', '33')
+	  .attr('width', '95')
+ 	  .attr('x', '-10')
+	  .attr('y', charth - 150);
+
+  // draw connector
+  bar.filter(function(d) { return d.class != "result final" }).append("line")
+      .attr("class", "connector")
+      .attr("x1", x.rangeBand() + 5 )
+      .attr("y1", function(d) { return y(d.end) } )
+      .attr("x2", x.rangeBand() / ( 1 - padding) - 5 )
+      .attr("y2", function(d) { return y(d.end) } );
+
+});
+
+function type(d) {
+  d.value = +d.value;
+  return d;
+}
+
+function commaFormatter(n) {
+  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+</script>
